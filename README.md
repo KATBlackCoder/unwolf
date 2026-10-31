@@ -29,7 +29,7 @@ was available for this feature yet.
 With Rust 1.85 or later:
 
 ```bash
-cargo install unwolf-cli   # installs the `unwolf` binary
+cargo install unwolf
 ```
 
 Without Rust: download `unwolf-<version>-x86_64-linux-gnu.tar.gz` from the
@@ -203,13 +203,18 @@ General and extraction:
 
 ## Layout
 
-- `crates/unwolf`: the library.
+- `crates/unwolf`: the library and the `unwolf` command (`src/main.rs`).
   - `game::Session`: the whole-game workflow.
   - `dxa`: archive reader and writer, LZ and Huffman.
   - `crypto`, `rng`: cipher layers.
   - `protkey`, `unprotect`: Pro protection.
   - `wolfrpg`, `wolfx`: Wolf RPG data files and WolfX.
-- `crates/unwolf-cli`: the `unwolf` binary.
+
+To use the library without the command and its dependencies:
+
+```toml
+unwolf = { version = "0.1", default-features = false }
+```
 - `scripts/`: Wine comparison and constant checks.
 
 ## Support

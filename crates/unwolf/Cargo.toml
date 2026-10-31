@@ -1,6 +1,6 @@
 [package]
 name = "unwolf"
-description = "Decrypt and extract Wolf RPG Editor archives (.wolf), a Rust port of UberWolf"
+description = "Decrypt and extract Wolf RPG Editor archives (.wolf): command line tool and library, a Rust port of UberWolf"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -8,7 +8,7 @@ rust-version.workspace = true
 repository.workspace = true
 readme.workspace = true
 keywords.workspace = true
-categories = ["game-development", "compression", "encoding"]
+categories = ["command-line-utilities", "game-development", "compression", "encoding"]
 
 [dependencies]
 thiserror.workspace = true
@@ -18,3 +18,18 @@ serde.workspace = true
 serde_json.workspace = true
 log.workspace = true
 lz4_flex.workspace = true
+clap = { workspace = true, optional = true }
+env_logger = { workspace = true, optional = true }
+
+[features]
+default = ["cli"]
+# The `unwolf` command. Library users can drop it, and its dependencies, with
+# `default-features = false`.
+cli = ["dep:clap", "dep:env_logger"]
+
+[[bin]]
+name = "unwolf"
+path = "src/main.rs"
+required-features = ["cli"]
+# Same name as the library: document the library only.
+doc = false

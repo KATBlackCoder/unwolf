@@ -468,23 +468,15 @@ checksum = "a2c754d6c33795a1c324727428e5a7dedb5b06195f9890bdbcba760d3e246563"
 name = "unwolf"
 version = "0.1.0"
 dependencies = [
+ "clap",
  "encoding_rs",
+ "env_logger",
  "log",
  "lz4_flex",
  "memmap2",
  "serde",
  "serde_json",
  "thiserror",
-]
-
-[[package]]
-name = "unwolf-cli"
-version = "0.1.0"
-dependencies = [
- "clap",
- "env_logger",
- "log",
- "unwolf",
 ]
 
 [[package]]
