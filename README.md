@@ -24,13 +24,25 @@ was available for this feature yet.
 | `-x` WolfX | decrypts the WolfX fonts of a real non-Pro 3.14 game; not compared with UberWolfCli, which refuses non-Pro games |
 | `-p` repack (experimental) | round trip tested for the 11 built-in modes; on real 3.14 and 3.50 games, UberWolfCli extracts unwolf's archives and unwolf extracts UberWolfCli's, with the same results; 2.20 and 3.31 not checked on a real game; never loaded by the game engine |
 
+## Install
+
+With Rust 1.85 or later:
+
+```bash
+cargo install unwolf-cli   # installs the `unwolf` binary
+```
+
+Without Rust: download `unwolf-<version>-x86_64-linux-gnu.tar.gz` from the
+[Releases](https://github.com/KATBlackCoder/unwolf/releases) page, check it
+against the `.sha256` file next to it, extract it and put `unwolf` in your
+`PATH`. The binary needs glibc 2.34 or later (Ubuntu 22.04, Debian 12,
+Fedora 35 and later).
+
 ## Build
 
 ```bash
 cargo build --release      # binary: target/release/unwolf
 ```
-
-Rust 1.85 or later.
 
 ## Usage
 
