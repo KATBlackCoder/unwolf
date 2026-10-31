@@ -2,8 +2,8 @@
 ///
 /// The original keeps the state in a function-local static; seeding with a
 /// non-zero value replaces the state and also performs one step. Here
-/// [`Xorshift32::new`] only sets the state: call [`Xorshift32::next`] once to
-/// reproduce the seeding call.
+/// [`Xorshift32::new`] only sets the state: call [`Xorshift32::next_u32`]
+/// once to reproduce the seeding call.
 #[derive(Debug, Clone)]
 pub struct Xorshift32 {
     state: u32,
