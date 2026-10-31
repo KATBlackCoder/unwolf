@@ -1,0 +1,13 @@
+unwolf is a Rust port of UberWolf / UberWolfLib / UberWolfCli
+  Copyright (c) 2023 Sinflower, MIT License
+  https://github.com/Sinflower/UberWolf (studied at commit f419137)
+
+The Wolf RPG crypto layers (WolfCrypt), Pro key derivation (WolfPro), WolfX
+decryption and the Wolf RPG file structures are ported from UberWolfLib.
+
+The DX Library archive format (DXA v5, v6, v8: header layout, key derivation,
+LZ and Huffman compression) is reimplemented from a written description of the
+format, not translated from the DXArchive sources bundled with UberWolf.
+The format and its original implementation are the work of Takumi Yamada:
+  DX Library Copyright (C) 2001-2026 Takumi Yamada.
+  https://dxlib.xsrv.jp/

@@ -1,0 +1,21 @@
+[package]
+name = "unwolf-cli"
+description = "Command line interface for unwolf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["command-line-utilities", "game-development"]
+
+[[bin]]
+name = "unwolf"
+path = "src/main.rs"
+
+[dependencies]
+unwolf = { path = "../unwolf", version = "0.1.0" }
+clap.workspace = true
+env_logger.workspace = true
+log.workspace = true

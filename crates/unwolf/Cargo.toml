@@ -1,0 +1,20 @@
+[package]
+name = "unwolf"
+description = "Decrypt and extract Wolf RPG Editor archives (.wolf), a Rust port of UberWolf"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+repository.workspace = true
+readme.workspace = true
+keywords.workspace = true
+categories = ["game-development", "compression", "encoding"]
+
+[dependencies]
+thiserror.workspace = true
+encoding_rs.workspace = true
+memmap2.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+log.workspace = true
+lz4_flex.workspace = true

@@ -1,0 +1,36 @@
+name: Bug report
+description: An archive fails to extract, or an option does not behave as documented.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Do not attach game files, archives or executables, and do not link to
+        copies of them. Describe the game instead: its name, its Wolf RPG
+        version and the archive that fails are enough to start.
+  - type: input
+    id: version
+    attributes:
+      label: unwolf version
+      description: Output of `unwolf --version`, or the commit you built.
+    validations:
+      required: true
+  - type: input
+    id: game
+    attributes:
+      label: Game and Wolf RPG version
+      description: Game name, Wolf RPG Editor version if known (2.x, 3.14, 3.31, 3.50...), Pro or not.
+    validations:
+      required: true
+  - type: textarea
+    id: command
+    attributes:
+      label: Command and output
+      description: The command you ran and its full output.
+      render: text
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected result
+      description: What you expected, for example what UberWolf or UberWolfCli does with the same game.

@@ -1,0 +1,11 @@
+# Game data, archives and extracted output must never be committed
+/game-test/
+/work/
+*.wolf
+*.wolfx
+*.exe
+*.dll
+UberWolfConfig.json
+
+# Rust
+/target/
