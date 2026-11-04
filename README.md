@@ -19,9 +19,9 @@ was available for this feature yet.
 | DXA v8, Wolf 3.31 / 3.50 (Wolf AES and XOR layers) | done, matches UberWolfCli on real 3.31 and 3.50 games |
 | DXA v6 (Wolf 2.20) / v5 (2.01, 2.10) | v6 matches UberWolfCli on a real game; v5 tested on synthetic data |
 | ChaCha20 modes | tested on synthetic data |
-| Wolf RPG Pro archive keys | implemented, untested |
-| Pro protection key, `-u` unprotect | tested on synthetic data |
-| `-x` WolfX | decrypts the WolfX fonts of a real non-Pro 3.14 game; not compared with UberWolfCli, which refuses non-Pro games |
+| Wolf RPG Pro archive keys | matches UberWolfCli on a real Pro 3.7 game |
+| Pro protection key, `-u` unprotect | on a real Pro 3.7 game: same protection key output and, after decompression, same `-u` files as UberWolfCli; older Pro versions tested on synthetic data |
+| `-x` WolfX | matches UberWolfCli on a real Pro 3.7 game; also decrypts the WolfX fonts of a real non-Pro 3.14 game, which UberWolfCli refuses |
 | `-p` repack (experimental) | round trip tested for the 11 built-in modes; on real 3.14 and 3.50 games, UberWolfCli extracts unwolf's archives and unwolf extracts UberWolfCli's, with the same results; 2.20 and 3.31 not checked on a real game; never loaded by the game engine |
 
 ## Install
@@ -120,12 +120,13 @@ General and extraction:
 - Archive names are checked: absolute paths, `..` and separators are rejected.
 - With `NO_HEAD_PRESS`, the tables are read at the name table offset. The
   original reads them at offset 64.
-- A `newCrypt` archive (3.31+) smaller than 1088 bytes is read as the original
-  encoder writes it: plain header, no AES layer and no whole-file XOR (tables
-  and data keep their usual key). The original decoder reports success on such
-  an archive without extracting anything. The result is the same for an empty
-  folder; for a small folder with files, this port extracts them and the
-  original does not.
+- A `newCrypt` archive (3.31+) smaller than 1088 bytes is read in the two
+  layouts found in practice: with every layer and no padding, as the Wolf RPG
+  Pro editor writes it, then with a plain header and no AES or whole-file XOR,
+  as UberWolf's own encoder writes it (tables and data keep their usual key).
+  The original decoder reports success on such an archive without extracting
+  anything: the result is the same for an empty folder; when the archive
+  holds files, this port extracts them and the original does not.
 - A Pro key already in `UberWolfConfig.json` is not written again.
 - With `-o`, the output is merged into the existing folder; it is not deleted
   when extraction fails.

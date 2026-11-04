@@ -31,6 +31,17 @@ const PROTECTED_GAME_DAT: &str = "Game.dat";
 /// Output folder of the Pro v1 unprotection, inside the data folder.
 const UNPROTECTED_FOLDER: &str = "unprotected";
 const COMMON_EVENT_DAT: &str = "CommonEvent.dat";
+/// Mode name of the archive key derived from a Pro game's key file.
+const PRO_MODE_NAME: &str = "UNKNOWN_PRO";
+
+/// Keys compare without their final NUL: keys loaded from the config file
+/// always end with one, derived Pro v2 keys do not.
+fn same_key(a: &[u8], b: &[u8]) -> bool {
+    fn trim(k: &[u8]) -> &[u8] {
+        k.strip_suffix(&[0]).unwrap_or(k)
+    }
+    trim(a) == trim(b)
+}
 
 #[derive(Debug, Clone)]
 pub struct Options {
@@ -315,11 +326,19 @@ impl Session {
         let Some(key_file) = self.game.as_ref().and_then(|g| g.pro_key_file.clone()) else {
             return Ok(false);
         };
-        (self.on_event)(&Event::ProDetected);
         let bytes = fs::read(&key_file).at(&key_file)?;
         let k = pro::dx_arc_key(&bytes)?;
+        if self
+            .modes
+            .iter()
+            .any(|m| m.name == PRO_MODE_NAME && same_key(&m.key, &k.key))
+        {
+            // Found earlier in this run: the archive fails for another reason.
+            return Ok(false);
+        }
+        (self.on_event)(&Event::ProDetected);
         self.modes.push(CryptMode {
-            name: "UNKNOWN_PRO".into(),
+            name: PRO_MODE_NAME.into(),
             crypt_version: k.crypt_version,
             format: crate::dxa::DxaFormat::V8,
             key: k.key.clone(),
@@ -330,7 +349,7 @@ impl Session {
         let known = self
             .modes
             .iter()
-            .find(|m| m.crypt_version == 0 && m.key == k.key);
+            .find(|m| m.crypt_version == 0 && same_key(&m.key, &k.key));
         let name = match known {
             Some(m) => m.name.clone(),
             None => config::add_key(&self.opts.config_path, &k.key)?,
@@ -606,5 +625,30 @@ fn extract_with(archive: &Path, mode: &CryptMode) -> Result<ExtractStats> {
             let _ = fs::remove_dir_all(&tmp);
             Err(e)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A Pro v2 key stored in the config file, then loaded again, matches the
+    /// key derived from the game: it is not written a second time.
+    #[test]
+    fn pro_key_from_config_matches_derived_key() {
+        let dir = std::env::temp_dir().join(format!("unwolf-prokey-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        let path = dir.join(config::CONFIG_FILE_NAME);
+
+        // No final NUL, with one inside, like the key of a real Pro 3.7 game.
+        let derived = [0x9C, 0xC8, 0xF8, 0x00, 0x84, 0xBA, 0x09, 0x70];
+        assert_eq!(config::add_key(&path, &derived).unwrap(), "UNKNOWN_0");
+        let (modes, err) = config::load(&path);
+        assert!(err.is_none());
+        assert_eq!(modes[0].key.last(), Some(&0));
+        assert!(same_key(&modes[0].key, &derived));
+        assert!(!same_key(&modes[0].key, &derived[..7]));
+        fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -15,11 +15,13 @@ use crate::error::{Error, Result};
 use crate::rng::Xorshift32;
 
 pub(super) const HEADER_LEN: u64 = 64;
-/// `newCrypt` archives shorter than this have no whole-file layers: the
-/// original encoder returns before the AES layer, the whole-file XOR and the
-/// header address cipher (`DXArchive.cpp`, `EncodeArchive`). Their tables and
-/// data still carry the `KeyConv` XOR. The original decoder returns success
-/// on them without extracting anything; this reader reads them as written.
+/// Below this size, the `newCrypt` archives of UberWolf's encoder have no
+/// whole-file layers: it returns before the AES layer, the whole-file XOR and
+/// the header address cipher (`DXArchive.cpp`, `EncodeArchive`). Their tables
+/// and data still carry the `KeyConv` XOR. The Wolf RPG Pro editor applies
+/// the layers anyway, without padding (a 799-byte Pro 3.7 archive). Small
+/// archives are read with the layers first, then without. The original
+/// decoder returns success on them without extracting anything.
 pub(super) const MIN_NEW_CRYPT_SIZE: u64 = HEADER_LEN + 0x400;
 pub(super) const FLAG_NO_KEY: u32 = 0x1;
 pub(super) const FLAG_NO_HEAD_PRESS: u32 = 0x2;
@@ -107,7 +109,7 @@ fn le(b: &[u8], off: usize, n: usize) -> u64 {
     v
 }
 
-pub fn parse(mut source: Source, mode_key: &[u8]) -> Result<Archive> {
+pub fn parse(source: Source, mode_key: &[u8]) -> Result<Archive> {
     if source.len() < HEADER_LEN {
         return Err(Error::NotDxArchive);
     }
@@ -122,6 +124,28 @@ pub fn parse(mut source: Source, mode_key: &[u8]) -> Result<Archive> {
             le(&h, 2, 2)
         )));
     }
+    let cv = (le(&h, 44, 4) >> 16) as u16;
+    if !is_new_crypt(cv) {
+        return parse_layers(source, h, mode_key, false);
+    }
+    if source.len() >= MIN_NEW_CRYPT_SIZE {
+        return parse_layers(source, h, mode_key, true);
+    }
+    // See `MIN_NEW_CRYPT_SIZE`: the Wolf RPG editor's layout first, then
+    // UberWolf's. The archive is under 1088 bytes, so the copy is cheap.
+    let plain = Source::from_vec(source.raw().to_vec());
+    parse_layers(source, h, mode_key, true)
+        .or_else(|e| parse_layers(plain, h, mode_key, false).map_err(|_| e))
+}
+
+/// Read the tables of a v8 archive, with or without the `newCrypt`
+/// whole-file layers and header address cipher.
+fn parse_layers(
+    mut source: Source,
+    mut h: [u8; 64],
+    mode_key: &[u8],
+    layered: bool,
+) -> Result<Archive> {
     let flags = le(&h, 44, 4) as u32;
     let cv = (flags >> 16) as u16;
 
@@ -132,7 +156,7 @@ pub fn parse(mut source: Source, mode_key: &[u8]) -> Result<Archive> {
     pwd.copy_from_slice(&h[49..64]);
 
     let mut cipher = data_cipher(cv, mode_key, &pwd)?;
-    if is_new_crypt(cv) && source.len() >= MIN_NEW_CRYPT_SIZE {
+    if layered {
         wolf::crypt_addresses(&mut h, &pwd, cv);
         let names = le(&h, 16, 8);
         let layers = wolf_layers(
@@ -196,12 +220,6 @@ pub(super) fn wolf_layers(
     pro_key: Option<&[u8]>,
     tables_start: u64,
 ) -> Result<WolfLayers> {
-    if size < MIN_NEW_CRYPT_SIZE {
-        // Callers skip the layers below this size; see `MIN_NEW_CRYPT_SIZE`.
-        return Err(Error::format(
-            "no whole-file layers on a Wolf-encrypted archive smaller than 1088 bytes",
-        ));
-    }
     if tables_start < HEADER_LEN || tables_start > size {
         return Err(Error::format("name table offset out of range"));
     }

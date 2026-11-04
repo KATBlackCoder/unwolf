@@ -149,6 +149,10 @@ enum SmallNewCrypt {
     /// The tables and data keep the `KeyConv` XOR.
     #[cfg_attr(not(test), allow(dead_code))]
     Plain,
+    /// The whole-file layers on the unpadded archive, like the Wolf RPG Pro
+    /// editor. UberWolf extracts nothing from such an archive.
+    #[cfg_attr(not(test), allow(dead_code))]
+    Layers,
 }
 
 const SMALL_NEW_CRYPT: SmallNewCrypt = SmallNewCrypt::Pad;
@@ -243,7 +247,10 @@ fn write_archive(
         small == SmallNewCrypt::Plain && file.metadata().at(path)?.len() < MIN_NEW_CRYPT_SIZE;
     if is_new_crypt(cv) && !plain_small {
         let key_cstr = super::cstr(&mode.key);
-        apply_wolf_layers(&mut file, path, &pwd, cv, key_cstr, &mode.key, names_at)?;
+        let pad = small == SmallNewCrypt::Pad;
+        apply_wolf_layers(
+            &mut file, path, &pwd, cv, key_cstr, &mode.key, names_at, pad,
+        )?;
         let mut h = [0u8; 64];
         h.copy_from_slice(&header);
         wolf::crypt_addresses(&mut h, &pwd, cv);
@@ -256,9 +263,10 @@ fn write_archive(
     Ok(w.stats)
 }
 
-/// The `newCrypt` whole-file layers, applied in place. Archives shorter
-/// than the minimum get zero padding after their tables first
+/// The `newCrypt` whole-file layers, applied in place. With `pad`, archives
+/// shorter than the minimum get zero padding after their tables first
 /// (`SmallNewCrypt::Pad`).
+#[allow(clippy::too_many_arguments)]
 fn apply_wolf_layers(
     file: &mut File,
     path: &Path,
@@ -267,9 +275,10 @@ fn apply_wolf_layers(
     key_cstr: &[u8],
     mode_key: &[u8],
     tables_start: u64,
+    pad: bool,
 ) -> Result<()> {
     let mut size = file.metadata().at(path)?.len();
-    if size < MIN_NEW_CRYPT_SIZE {
+    if pad && size < MIN_NEW_CRYPT_SIZE {
         file.set_len(MIN_NEW_CRYPT_SIZE).at(path)?;
         size = MIN_NEW_CRYPT_SIZE;
     }
@@ -762,11 +771,12 @@ mod tests {
         fs::remove_dir_all(&base).unwrap();
     }
 
-    /// Archives under 1088 bytes laid out like the original encoder writes
-    /// them: plain header, no AES and no whole-file XOR, `KeyConv` XOR on
-    /// the tables and data. An empty folder gives an empty folder.
+    /// Archives under 1088 bytes in both layouts: UberWolf's encoder (plain
+    /// header, no AES and no whole-file XOR, `KeyConv` XOR on the tables and
+    /// data) and the Wolf RPG Pro editor (every layer, no padding). An empty
+    /// folder gives an empty folder.
     #[test]
-    fn small_new_crypt_archive_without_layers_is_read() {
+    fn small_new_crypt_archives_are_read() {
         let base = std::env::temp_dir().join(format!("unwolf-pack-plain-{}", std::process::id()));
         let _ = fs::remove_dir_all(&base);
         let empty = base.join("empty");
@@ -780,17 +790,22 @@ mod tests {
             .filter(|m| m.format == DxaFormat::V8 && is_new_crypt(m.crypt_version))
             .collect();
         assert!(!new_crypt.is_empty());
-        for mode in &new_crypt {
+        for (mode, small) in new_crypt
+            .iter()
+            .flat_map(|m| [(m, SmallNewCrypt::Plain), (m, SmallNewCrypt::Layers)])
+        {
             for (src, files) in [(&empty, 0usize), (&tiny, 1)] {
                 let archive = base.join("a.wolf");
-                let stats = write_archive(src, &archive, mode, SmallNewCrypt::Plain).unwrap();
+                let stats = write_archive(src, &archive, mode, small).unwrap();
                 assert!(stats.archive_size < MIN_NEW_CRYPT_SIZE, "{}", mode.name);
 
-                // Plain header: data at 64, names right after the data.
-                let raw = fs::read(&archive).unwrap();
-                let at = |o: usize| u64::from_le_bytes(raw[o..o + 8].try_into().unwrap());
-                assert_eq!(at(8), V8_HEADER_LEN, "{}", mode.name);
-                assert!(at(16) >= V8_HEADER_LEN && at(16) < raw.len() as u64);
+                if small == SmallNewCrypt::Plain {
+                    // Plain header: data at 64, names right after the data.
+                    let raw = fs::read(&archive).unwrap();
+                    let at = |o: usize| u64::from_le_bytes(raw[o..o + 8].try_into().unwrap());
+                    assert_eq!(at(8), V8_HEADER_LEN, "{}", mode.name);
+                    assert!(at(16) >= V8_HEADER_LEN && at(16) < raw.len() as u64);
+                }
 
                 let a = Archive::open(
                     &archive,
