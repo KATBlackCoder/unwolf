@@ -16,6 +16,7 @@ mod write;
 
 use std::path::{Path, PathBuf};
 
+pub(crate) use extract::extract_with_progress;
 pub use extract::{ExtractStats, extract_to};
 pub use keys::Cipher;
 pub use source::Source;

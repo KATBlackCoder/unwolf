@@ -1,6 +1,7 @@
 //! Writing an archive's contents to disk.
 
 use std::fs;
+use std::ops::ControlFlow;
 use std::path::Path;
 use std::time::{Duration, SystemTime};
 
@@ -29,6 +30,20 @@ pub struct ExtractStats {
 /// Decoding errors abort the extraction; the caller removes the partial
 /// output.
 pub fn extract_to(archive: &Archive, out: &Path) -> Result<ExtractStats> {
+    extract_with_progress(archive, out, &mut |_, _, _| ControlFlow::Continue(()))
+        .map(|r| r.unwrap_or_default())
+}
+
+/// [`extract_to`], calling `on_file(path, index, total)` after each file is
+/// written: `path` inside the archive, `index` from 1 to `total`, the number
+/// of files (folders excluded). `Ok(None)` when `on_file` asked to stop; the
+/// files written so far stay in `out`.
+pub(crate) fn extract_with_progress(
+    archive: &Archive,
+    out: &Path,
+    on_file: &mut dyn FnMut(&Path, u64, u64) -> ControlFlow<()>,
+) -> Result<Option<ExtractStats>> {
+    let total = archive.entries.iter().filter(|e| e.data.is_some()).count() as u64;
     let mut stats = ExtractStats::default();
     for e in &archive.entries {
         let target = out.join(&e.path);
@@ -47,10 +62,13 @@ pub fn extract_to(archive: &Archive, out: &Path) -> Result<ExtractStats> {
                 set_times(&target, e);
                 stats.files += 1;
                 stats.bytes += bytes.len() as u64;
+                if on_file(&e.path, stats.files, total).is_break() {
+                    return Ok(None);
+                }
             }
         }
     }
-    Ok(stats)
+    Ok(Some(stats))
 }
 
 fn strip_anti_unpack(e: &Entry, bytes: &mut Vec<u8>) {

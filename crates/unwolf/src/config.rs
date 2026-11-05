@@ -88,6 +88,8 @@ fn parse_key(v: &Value) -> std::result::Result<Vec<u8>, String> {
 
 /// Add a key under the first free `UNKNOWN_<n>` name and write the file
 /// with 4-space indentation, keeping existing entries in order.
+///
+/// The parent folder of `path` is created when it is missing.
 pub fn add_key(path: &Path, key: &[u8]) -> Result<String> {
     let mut root: Map<String, Value> = match fs::read_to_string(path) {
         Ok(t) if !t.trim().is_empty() => serde_json::from_str(&t).map_err(|e| Error::Config {
@@ -128,6 +130,9 @@ pub fn add_key(path: &Path, key: &[u8]) -> Result<String> {
         path: path.to_path_buf(),
         message: e.to_string(),
     })?;
+    if let Some(parent) = path.parent().filter(|p| !p.as_os_str().is_empty()) {
+        fs::create_dir_all(parent).at(parent)?;
+    }
     fs::write(path, out).at(path)?;
     Ok(name)
 }
@@ -151,6 +156,40 @@ mod tests {
         assert_eq!(modes.len(), 2);
         assert_eq!(modes[0].key, vec![0x9C, 0x00, 0x84, 0x00]);
         assert_eq!(modes[1].key, vec![0x01, 0x00]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn add_key_creates_missing_folders() {
+        let dir = std::env::temp_dir().join(format!("unwolf-cfg-mkdir-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        let p = dir.join("a/b").join(CONFIG_FILE_NAME);
+        assert_eq!(add_key(&p, &[0x01, 0x02]).unwrap(), "UNKNOWN_0");
+        let (modes, err) = load(&p);
+        assert!(err.is_none());
+        assert_eq!(modes[0].key, vec![0x01, 0x02, 0x00]);
+        fs::remove_dir_all(&dir).unwrap();
+    }
+
+    /// A path that cannot be written gives an error. Permissions are not
+    /// used: they do not stop root, which runs some CI jobs.
+    #[test]
+    fn add_key_reports_unwritable_paths() {
+        let dir = std::env::temp_dir().join(format!("unwolf-cfg-ro-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        // The config path is a folder.
+        let as_dir = dir.join(CONFIG_FILE_NAME);
+        fs::create_dir_all(&as_dir).unwrap();
+        assert!(matches!(add_key(&as_dir, &[1]), Err(Error::Io { .. })));
+        // Its parent is a file.
+        let file = dir.join("file");
+        fs::write(&file, b"x").unwrap();
+        let under_file = file.join(CONFIG_FILE_NAME);
+        match add_key(&under_file, &[1]) {
+            Err(Error::Io { path, .. }) => assert_eq!(path, file),
+            other => panic!("unexpected result: {other:?}"),
+        }
         fs::remove_dir_all(&dir).unwrap();
     }
 }

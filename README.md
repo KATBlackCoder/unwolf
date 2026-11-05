@@ -75,7 +75,9 @@ listed in `UberWolfConfig.json`, in the original's format.
 
 For Wolf RPG Pro games, the archive key is derived from the game's key file
 (`Game.wolf`, `List.wolf`...). It is added to the configuration file as
-`UNKNOWN_<n>`.
+`UNKNOWN_<n>`; missing folders of that path are created. When the file cannot
+be written, unwolf prints a warning and goes on with the key in memory: the
+next run derives it again.
 
 ### With `Game.exe`
 
@@ -128,6 +130,9 @@ General and extraction:
   anything: the result is the same for an empty folder; when the archive
   holds files, this port extracts them and the original does not.
 - A Pro key already in `UberWolfConfig.json` is not written again.
+- When `UberWolfConfig.json` cannot be written, a warning is printed and the
+  extraction goes on with the Pro key in memory. The original ignores the
+  error without a message. Missing folders of the `--config` path are created.
 - With `-o`, the output is merged into the existing folder; it is not deleted
   when extraction fails.
 - Non-zero exit status on failure (see above).
@@ -205,7 +210,9 @@ General and extraction:
 ## Layout
 
 - `crates/unwolf`: the library and the `unwolf` command (`src/main.rs`).
-  - `game::Session`: the whole-game workflow.
+  - `game::Session`: the whole-game workflow. `unpack_data_with_progress`
+    and `unpack_files_with_progress` report each extracted file and can stop
+    the extraction.
   - `dxa`: archive reader and writer, LZ and Huffman.
   - `crypto`, `rng`: cipher layers.
   - `protkey`, `unprotect`: Pro protection.
