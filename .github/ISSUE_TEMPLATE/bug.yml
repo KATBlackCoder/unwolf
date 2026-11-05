@@ -34,3 +34,8 @@ body:
     attributes:
       label: Expected result
       description: What you expected, for example what UberWolf or UberWolfCli does with the same game.
+  - type: textarea
+    id: proof
+    attributes:
+      label: Screenshots or other proof
+      description: Optional but very helpful. Drag screenshots of the error or of the wrong result here (no game files).
