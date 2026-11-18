@@ -21,6 +21,9 @@ use crate::protkey::{self, ProVersion, ProtectionKey};
 use crate::unprotect::{self, FileReport};
 use crate::wolfx;
 
+/// Result for one `.wolfx` file of [`Session::decrypt_wolfx`].
+pub use crate::wolfx::FileResult;
+
 /// Name UberWolf gives the data folder and data file (`data.wolf`, `Data/`).
 const DATA_NAME: &str = "data";
 const GAME_EXE_NAMES: [&str; 2] = ["Game.exe", "GamePro.exe"];
@@ -45,6 +48,7 @@ fn same_key(a: &[u8], b: &[u8]) -> bool {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct Options {
     /// Re-extract archives whose output folder already exists (`-o`).
     pub overwrite: bool,
@@ -52,17 +56,35 @@ pub struct Options {
     pub config_path: PathBuf,
 }
 
+/// The default keeps `UberWolfConfig.json` in the current folder; an
+/// application should give its own path with [`Options::new`].
 impl Default for Options {
     fn default() -> Self {
+        Self::new(config::CONFIG_FILE_NAME)
+    }
+}
+
+impl Options {
+    /// Options with `UberWolfConfig.json` at `config_path` (keys found for
+    /// Wolf RPG Pro games are saved there) and `overwrite` off.
+    pub fn new(config_path: impl Into<PathBuf>) -> Self {
         Self {
             overwrite: false,
-            config_path: PathBuf::from(config::CONFIG_FILE_NAME),
+            config_path: config_path.into(),
         }
+    }
+
+    /// Set [`Options::overwrite`].
+    #[must_use]
+    pub fn with_overwrite(mut self, overwrite: bool) -> Self {
+        self.overwrite = overwrite;
+        self
     }
 }
 
 /// Progress notifications, mirroring the original console messages.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Event<'a> {
     Unpacking(&'a Path),
     AlreadyUnpacked(&'a Path),
@@ -96,6 +118,7 @@ pub enum Event<'a> {
 
 /// Result of one archive.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum Outcome {
     Extracted {
         mode: String,
@@ -138,6 +161,7 @@ fn outcome(flow: ControlFlow<Outcome, Outcome>) -> Outcome {
 }
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub struct GameInfo {
     pub exe: PathBuf,
     /// Folder holding the archives: the game folder itself when it contains
@@ -148,6 +172,11 @@ pub struct GameInfo {
     pub pro_key_file: Option<PathBuf>,
 }
 
+/// Receives the [`Event`]s of a [`Session`]. It must be [`Send`], so that a
+/// session can be moved to another thread (a worker or a blocking task).
+pub type EventHandler = Box<dyn FnMut(&Event<'_>) + Send>;
+
+/// A run over one game or a set of archives. `Session` is [`Send`].
 pub struct Session {
     modes: Vec<CryptMode>,
     /// Mode of the previous successful archive (`m_mode`), reused for the
@@ -155,11 +184,11 @@ pub struct Session {
     current: Option<usize>,
     opts: Options,
     game: Option<GameInfo>,
-    on_event: Box<dyn FnMut(&Event<'_>)>,
+    on_event: EventHandler,
 }
 
 impl Session {
-    pub fn new(opts: Options, on_event: Box<dyn FnMut(&Event<'_>)>) -> Self {
+    pub fn new(opts: Options, on_event: EventHandler) -> Self {
         let mut s = Self {
             modes: default_modes(),
             current: None,
@@ -506,6 +535,7 @@ impl Session {
 
 /// Result of packing one folder.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum PackOutcome {
     Packed(PackStats),
     /// The archive exists and `overwrite` is off.
@@ -513,8 +543,23 @@ pub enum PackOutcome {
     Failed(Error),
 }
 
+/// Result of [`Session::protection_status`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
+pub enum ProtectionStatus {
+    /// Not a Wolf RPG Pro game: no Pro key file in the data folder.
+    NotPro,
+    /// A Pro game whose `BasicData/Game.dat` is in plain form: the protection
+    /// was already removed (`-u`), or never applied.
+    Unprotected,
+    /// A Pro game with protected data files: [`Session::unprotect`] takes
+    /// this version.
+    Protected(ProVersion),
+}
+
 /// Result of [`Session::unprotect`].
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct Unprotected {
     /// Where the unprotected files are.
     pub location: PathBuf,
@@ -523,12 +568,13 @@ pub struct Unprotected {
 
 /// Result of [`Session::decrypt_wolfx`].
 #[derive(Debug, Default)]
+#[non_exhaustive]
 pub struct WolfxReport {
     /// Candidate keys, string values and integer values found.
     pub candidates: (usize, usize, usize),
     /// Data files that could not be read; their commands are missing.
     pub warnings: Vec<Error>,
-    pub files: Vec<wolfx::FileResult>,
+    pub files: Vec<FileResult>,
 }
 
 impl Session {
@@ -641,10 +687,39 @@ impl Session {
         })
     }
 
+    /// Whether the data files of the game are protected, and how. Unpacks the
+    /// `BasicData` archive first when its `Game.dat` is not there yet.
+    ///
+    /// Call it before [`Self::unprotect`]: a game whose protection was
+    /// already removed is [`ProtectionStatus::Unprotected`], not
+    /// [`ProVersion::V1`].
+    pub fn protection_status(&mut self) -> Result<ProtectionStatus> {
+        let Some(bytes) = self.pro_game_dat()? else {
+            return Ok(ProtectionStatus::NotPro);
+        };
+        Ok(if protkey::is_unprotected(&bytes) {
+            ProtectionStatus::Unprotected
+        } else {
+            ProtectionStatus::Protected(protkey::detect_version(&bytes))
+        })
+    }
+
     /// `FindProtectionKey`: the protection key of a Pro game, `None` for
-    /// other games. Unpacks the `BasicData` archive first when its
-    /// `Game.dat` is not there yet.
+    /// other games and for Pro games whose protection was already removed.
+    /// Unpacks the `BasicData` archive first when its `Game.dat` is not there
+    /// yet.
     pub fn protection_key(&mut self) -> Result<Option<ProtectionKey>> {
+        let Some(bytes) = self.pro_game_dat()? else {
+            return Ok(None);
+        };
+        if protkey::is_unprotected(&bytes) {
+            return Ok(None);
+        }
+        protkey::protection_key(&bytes).map(Some)
+    }
+
+    /// Bytes of `BasicData/Game.dat` for a Pro game, `None` for other games.
+    fn pro_game_dat(&mut self) -> Result<Option<Vec<u8>>> {
         let Some(g) = self.game.clone() else {
             return Err(Error::Game("no game initialised".into()));
         };
@@ -666,8 +741,7 @@ impl Session {
         }
         let path = game_dat
             .ok_or_else(|| Error::Game(format!("{BASIC_DATA}/{PROTECTED_GAME_DAT} not found")))?;
-        let bytes = fs::read(&path).at(&path)?;
-        protkey::protection_key(&bytes).map(Some)
+        fs::read(&path).at(&path).map(Some)
     }
 
     /// `RemoveProtection` (`-u`), for the version returned with the
@@ -796,8 +870,7 @@ fn extract_with(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::cell::RefCell;
-    use std::rc::Rc;
+    use std::sync::{Arc, Mutex};
 
     use crate::dxa::DxaFormat;
 
@@ -859,15 +932,12 @@ mod tests {
     }
 
     /// A session that records its events as text.
-    fn session(config_path: PathBuf, overwrite: bool) -> (Session, Rc<RefCell<Vec<String>>>) {
-        let events = Rc::new(RefCell::new(Vec::new()));
-        let log = Rc::clone(&events);
+    fn session(config_path: PathBuf, overwrite: bool) -> (Session, Arc<Mutex<Vec<String>>>) {
+        let events = Arc::new(Mutex::new(Vec::new()));
+        let log = Arc::clone(&events);
         let s = Session::new(
-            Options {
-                overwrite,
-                config_path,
-            },
-            Box::new(move |e: &Event<'_>| log.borrow_mut().push(format!("{e:?}"))),
+            Options::new(config_path).with_overwrite(overwrite),
+            Box::new(move |e: &Event<'_>| log.lock().unwrap().push(format!("{e:?}"))),
         );
         (s, events)
     }
@@ -893,7 +963,7 @@ mod tests {
         let (modes, err) = config::load(&config);
         assert!(err.is_none());
         assert_eq!(modes.len(), 1);
-        let events = events.borrow();
+        let events = events.lock().unwrap();
         assert!(events.iter().any(|e| e.contains("\"UNKNOWN_0\"")));
         assert!(!events.iter().any(|e| e.starts_with("Warning")));
         fs::remove_dir_all(&base).unwrap();
@@ -914,7 +984,7 @@ mod tests {
         assert!(matches!(r[0].1, Outcome::Extracted { .. }), "{:?}", r[0].1);
         assert_extracted(&archive);
         {
-            let events = events.borrow();
+            let events = events.lock().unwrap();
             let warning = events.iter().position(|e| e.starts_with("Warning"));
             let found = events.iter().position(|e| e.contains("\"UNKNOWN_PRO\""));
             assert!(warning.is_some() && found.is_some(), "{events:?}");
@@ -924,12 +994,18 @@ mod tests {
         assert!(config.is_dir());
 
         // The key is reused for the next archive without a new attempt.
-        events.borrow_mut().clear();
+        events.lock().unwrap().clear();
         let second = base.join("Data/Second.wolf");
         fs::copy(&archive, &second).unwrap();
         let r = s.unpack_files(std::slice::from_ref(&second));
         assert!(matches!(r[0].1, Outcome::Extracted { .. }), "{:?}", r[0].1);
-        assert!(!events.borrow().iter().any(|e| e.starts_with("ProDetected")));
+        assert!(
+            !events
+                .lock()
+                .unwrap()
+                .iter()
+                .any(|e| e.starts_with("ProDetected"))
+        );
         fs::remove_dir_all(&base).unwrap();
     }
 
@@ -998,7 +1074,13 @@ mod tests {
                 }
                 other => panic!("{other:?}"),
             }
-            assert!(events.borrow().iter().any(|e| e.starts_with("Failed")));
+            assert!(
+                events
+                    .lock()
+                    .unwrap()
+                    .iter()
+                    .any(|e| e.starts_with("Failed"))
+            );
             if overwrite {
                 let names: Vec<_> = fs::read_dir(&out).unwrap().collect();
                 assert_eq!(names.len(), 1);
@@ -1015,6 +1097,114 @@ mod tests {
             assert!(leftovers.is_empty(), "{leftovers:?}");
         }
         fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A game folder (`Game.exe`, `Data/`) with a Pro key file when `pro`,
+    /// and `Data/BasicData/Game.dat` holding `game_dat` when given; returns
+    /// a session on it.
+    fn status_game(name: &str, pro: bool, game_dat: Option<&[u8]>) -> (PathBuf, Session) {
+        let base = temp_dir(name);
+        let basic = base.join("Data").join(BASIC_DATA);
+        fs::create_dir_all(&basic).unwrap();
+        fs::write(base.join("Game.exe"), b"").unwrap();
+        if pro {
+            fs::write(base.join("Data/Game.wolf"), b"key file").unwrap();
+        }
+        if let Some(bytes) = game_dat {
+            fs::write(basic.join(PROTECTED_GAME_DAT), bytes).unwrap();
+        }
+        let (mut s, _) = session(base.join(config::CONFIG_FILE_NAME), false);
+        s.init_game(&base.join("Game.exe")).unwrap();
+        (base, s)
+    }
+
+    /// `Game.dat` of a Pro game with the given generation byte.
+    fn pro_header(generation: u8) -> Vec<u8> {
+        let mut d = vec![0u8; 32];
+        d[1] = 0x50;
+        d[5] = generation;
+        d
+    }
+
+    #[test]
+    fn protection_status_of_each_kind_of_game() {
+        let plain = [0x00, 0x57, 0x00, 0x00, 0x4F, 0x4C, 0x00, 0x46, 0x4D, 0x55];
+        // Encrypted v1 data: no Pro header and not in plain form.
+        let v1 = [0x11, 0x9A, 0x3C, 0x00, 0x7E, 0x21, 0x05, 0x44, 0x22, 0x10];
+        let (v2, v35, v36) = (pro_header(0x55), pro_header(0x57), pro_header(0x58));
+        let cases: [(&str, bool, &[u8], ProtectionStatus); 6] = [
+            ("st-notpro", false, &plain, ProtectionStatus::NotPro),
+            ("st-plain", true, &plain, ProtectionStatus::Unprotected),
+            (
+                "st-v35",
+                true,
+                &v35,
+                ProtectionStatus::Protected(ProVersion::V35),
+            ),
+            (
+                "st-v36",
+                true,
+                &v36,
+                ProtectionStatus::Protected(ProVersion::V35),
+            ),
+            (
+                "st-v2",
+                true,
+                &v2,
+                ProtectionStatus::Protected(ProVersion::V2),
+            ),
+            (
+                "st-v1",
+                true,
+                &v1,
+                ProtectionStatus::Protected(ProVersion::V1),
+            ),
+        ];
+        for (name, pro, game_dat, expected) in cases {
+            let (base, mut s) = status_game(name, pro, Some(game_dat));
+            assert_eq!(s.protection_status().unwrap(), expected, "{name}");
+            fs::remove_dir_all(&base).unwrap();
+        }
+    }
+
+    /// No protection key for a game whose protection was already removed,
+    /// instead of a wrong v1 attempt; the v3.5 key stays not recoverable.
+    #[test]
+    fn protection_key_after_unprotect() {
+        let plain = [0x00, 0x57, 0x00, 0x00, 0x4F, 0x4C, 0x00, 0x46, 0x4D, 0x55];
+        let (base, mut s) = status_game("key-plain", true, Some(&plain[..]));
+        assert_eq!(s.protection_key().unwrap(), None);
+        fs::remove_dir_all(&base).unwrap();
+
+        let v35 = pro_header(0x57);
+        let (base, mut s) = status_game("key-v35", true, Some(v35.as_slice()));
+        assert_eq!(
+            s.protection_key().unwrap(),
+            Some(ProtectionKey::NotRecoverable)
+        );
+        fs::remove_dir_all(&base).unwrap();
+
+        let (base, mut s) = status_game("key-notpro", false, None);
+        assert_eq!(s.protection_key().unwrap(), None);
+        assert_eq!(s.protection_status().unwrap(), ProtectionStatus::NotPro);
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A Pro game with neither `Game.dat` nor a `BasicData` archive.
+    #[test]
+    fn protection_status_without_game_dat_fails() {
+        let (base, mut s) = status_game("st-missing", true, None);
+        assert!(matches!(s.protection_status(), Err(Error::Game(_))));
+        fs::remove_dir_all(&base).unwrap();
+    }
+
+    /// A session can be moved to another thread.
+    #[test]
+    fn session_is_send() {
+        fn assert_send<T: Send>() {}
+        assert_send::<Session>();
+        assert_send::<Options>();
+        assert_send::<Outcome>();
     }
 
     /// A Pro v2 key stored in the config file, then loaded again, matches the

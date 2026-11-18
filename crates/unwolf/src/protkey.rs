@@ -10,6 +10,7 @@ use crate::rng::MsvcRand;
 
 /// Generation of the Pro protection, which also selects how `-u` works.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ProVersion {
     V1,
     V2,
@@ -18,6 +19,7 @@ pub enum ProVersion {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+#[non_exhaustive]
 pub enum ProtectionKey {
     Key {
         version: ProVersion,
@@ -46,7 +48,23 @@ impl fmt::Display for ProtectionKey {
     }
 }
 
+/// Start of a `Game.dat` in plain form: written by the editor without
+/// protection, or put back by `-u` (`DEC_START` with bytes 6 and 9 swapped).
+const PLAIN_GAME_DAT_START: [u8; 6] = [0x00, 0x57, 0x00, 0x00, 0x4F, 0x4C];
+
+/// Whether `game_dat` is in plain form, that is not protected: the Pro
+/// protection was never applied or has already been removed (`-u`).
+///
+/// A v1 protected file has no Pro header either, so [`detect_version`]
+/// alone cannot tell the two apart.
+pub fn is_unprotected(game_dat: &[u8]) -> bool {
+    game_dat.starts_with(&PLAIN_GAME_DAT_START)
+}
+
 /// Generation of a protected `Game.dat`, as tested by `findProtectionKey`.
+///
+/// Any file without a Pro header counts as v1, including a plain one: check
+/// [`is_unprotected`] first.
 pub fn detect_version(game_dat: &[u8]) -> ProVersion {
     match pro_generation(game_dat) {
         Some(0x55) => ProVersion::V2,
@@ -56,7 +74,13 @@ pub fn detect_version(game_dat: &[u8]) -> ProVersion {
 }
 
 /// Recover the protection key from the bytes of `BasicData/Game.dat`.
+///
+/// Fails with [`Error::Game`] when the file is not protected
+/// ([`is_unprotected`]).
 pub fn protection_key(game_dat: &[u8]) -> Result<ProtectionKey> {
+    if is_unprotected(game_dat) {
+        return Err(Error::Game("Game.dat is not protected".into()));
+    }
     let version = detect_version(game_dat);
     let key = match version {
         ProVersion::V35 => return Ok(ProtectionKey::NotRecoverable),
@@ -184,6 +208,26 @@ mod tests {
         );
     }
 
+    /// A plain `Game.dat` (as left by `-u` on a real Pro 3.7 game) is not
+    /// protected, even though `detect_version` alone would call it v1.
+    #[test]
+    fn plain_game_dat_is_unprotected() {
+        let plain = [
+            0x00, 0x57, 0x00, 0x00, 0x4F, 0x4C, 0x00, 0x46, 0x4D, 0x55, 0x2B, 0x00,
+        ];
+        assert!(is_unprotected(&plain));
+        assert_eq!(detect_version(&plain), ProVersion::V1);
+        assert!(matches!(protection_key(&plain), Err(Error::Game(_))));
+
+        let mut v35 = plain;
+        v35[0] = 0x57;
+        v35[1] = 0x50;
+        v35[5] = 0x57;
+        assert!(!is_unprotected(&v35));
+        assert!(!is_unprotected(&plain[..5]));
+        assert!(!is_unprotected(&[]));
+    }
+
     /// Build a v1 `Game.dat` holding `key` and read it back.
     #[test]
     fn v1_round_trip() {
@@ -204,6 +248,7 @@ mod tests {
         for i in GAME_DAT_SEEDS {
             file[i] = plain[i];
         }
+        assert!(!is_unprotected(&file));
         let got = key_v1(&file).unwrap();
         assert_eq!(got, key);
     }

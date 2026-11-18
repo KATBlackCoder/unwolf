@@ -2,6 +2,7 @@ use std::path::{Path, PathBuf};
 
 /// Errors returned by the library.
 #[derive(Debug, thiserror::Error)]
+#[non_exhaustive]
 pub enum Error {
     #[error("{path}: {source}")]
     Io {

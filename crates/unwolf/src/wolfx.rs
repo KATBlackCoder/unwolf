@@ -369,6 +369,7 @@ pub fn files_with_extension(root: &Path, ext: &str, errors: &mut Vec<Error>) -> 
 
 /// Result for one `.wolfx` file.
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct FileResult {
     pub path: PathBuf,
     pub outcome: Result<PathBuf>,

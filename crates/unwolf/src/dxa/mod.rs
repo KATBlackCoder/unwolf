@@ -6,9 +6,11 @@
 //! directory tables are relative to the start of that block.
 
 mod extract;
+#[doc(hidden)]
 pub mod huffman;
 pub mod keys;
 mod legacy;
+#[doc(hidden)]
 pub mod lz;
 mod source;
 mod v8;

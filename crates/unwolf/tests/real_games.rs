@@ -243,10 +243,7 @@ fn real_games() {
         let copy = work.join("games").join(&name);
         copy_game(game, &copy);
 
-        let opts = Options {
-            overwrite: false,
-            config_path: work.join(format!("{name}.UberWolfConfig.json")),
-        };
+        let opts = Options::new(work.join(format!("{name}.UberWolfConfig.json")));
         let mut session = Session::new(opts, Box::new(|_| {}));
         let exe = find_exe(&copy).unwrap();
         let data = match session.init_game(&exe) {
@@ -278,6 +275,10 @@ fn real_games() {
                 Outcome::Failed(e) => {
                     println!("  {arch}: FAILED: {e}");
                     failures.push(format!("{name}/{arch}: {e}"));
+                    continue;
+                }
+                other => {
+                    failures.push(format!("{name}/{arch}: unexpected outcome {other:?}"));
                     continue;
                 }
             };
