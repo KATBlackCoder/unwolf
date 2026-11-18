@@ -6,7 +6,7 @@ use std::process::ExitCode;
 
 use clap::Parser;
 use unwolf::fsutil::{has_extension_ci, list_files};
-use unwolf::game::{Event, Options, Outcome, PackOutcome, Session};
+use unwolf::game::{Event, Options, Outcome, PackOutcome, ProtectionStatus, Session};
 use unwolf::modes::default_modes;
 use unwolf::unprotect::FileStatus;
 
@@ -93,15 +93,21 @@ fn print_event(e: &Event<'_>) {
                 eprintln!("  {e}");
             }
         },
+        // Events added by later versions of the library are not shown.
+        _ => {}
     }
 }
 
 /// Print the protection key of a Pro game and, with `-u`, remove the
 /// protection. Returns false when `-u` was requested and did not succeed.
 fn protection(session: &mut Session, unprotect: bool) -> bool {
-    let key = match session.protection_key() {
-        Ok(Some(k)) => k,
-        Ok(None) => {
+    let version = match session.protection_status() {
+        Ok(ProtectionStatus::Protected(v)) => v,
+        Ok(ProtectionStatus::Unprotected) => {
+            println!("Protection: already removed, BasicData is not protected");
+            return true;
+        }
+        Ok(_) => {
             if unprotect {
                 eprintln!(
                     "error: unable to remove protection, this does not look like a WolfPro game"
@@ -110,15 +116,19 @@ fn protection(session: &mut Session, unprotect: bool) -> bool {
             return !unprotect;
         }
         Err(e) => {
-            eprintln!("error: protection key: {e}");
+            eprintln!("error: protection: {e}");
             return !unprotect;
         }
     };
-    println!("Protection key: {key}");
+    match session.protection_key() {
+        Ok(Some(key)) => println!("Protection key: {key}"),
+        Ok(None) => {}
+        Err(e) => eprintln!("error: protection key: {e}"),
+    }
     if !unprotect {
         return true;
     }
-    let report = match session.unprotect(key.version()) {
+    let report = match session.unprotect(version) {
         Ok(r) => r,
         Err(e) => {
             eprintln!("error: {e}");
@@ -136,6 +146,7 @@ fn protection(session: &mut Session, unprotect: bool) -> bool {
                 println!("Failed");
                 eprintln!("  {e}");
             }
+            other => println!("{other:?}"),
         }
     }
     println!(
@@ -182,10 +193,7 @@ fn main() -> ExitCode {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
     let cli = Cli::parse();
 
-    let opts = Options {
-        overwrite: cli.overwrite,
-        config_path: cli.config.clone(),
-    };
+    let opts = Options::new(cli.config.clone()).with_overwrite(cli.overwrite);
     let mut session = Session::new(opts, Box::new(print_event));
     let first = &cli.files[0];
 

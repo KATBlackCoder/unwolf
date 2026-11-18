@@ -58,7 +58,9 @@ Wolf RPG 3.5 stores only a hash of that key, so for those games the line reads
 
 - `-u` on Pro 3.5: the files of `BasicData` are decrypted in place. The originals
   are copied to `BasicData/backup/` (an existing backup is never replaced).
-  Running `-u` again finds nothing left to decrypt.
+  Running `-u` again prints `Protection: already removed, BasicData is not
+  protected` and succeeds: a plain `Game.dat` is recognised (unwolf 0.2.0;
+  0.1.x took it for a v1 file).
 - `-u` on Pro v1: decrypted copies go to `<data>/unprotected/`.
 - `-u` on Pro v2: not supported (not implemented in UberWolf either).
 - `-x`: every `foo.ext.wolfx` under the game folder is decrypted to `foo.ext`
@@ -189,5 +191,12 @@ General and extraction:
 To use the library without the command and its dependencies:
 
 ```toml
-unwolf = { version = "0.1", default-features = false }
+unwolf = { version = "0.2", default-features = false }
 ```
+
+Stable API: `game`, `dxa` (`Archive`, `extract_to`, `pack_directory`),
+`modes`, `config`, `protkey`, `unprotect` and `Error`. Public enums and result
+structs are `#[non_exhaustive]`; `Session` is `Send`. Before
+`Session::unprotect`, `Session::protection_status` tells whether the game is
+Pro and still protected. Modules hidden from the documentation are not part
+of the stable API. Changes are listed in `CHANGELOG.md`.

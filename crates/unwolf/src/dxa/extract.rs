@@ -19,6 +19,7 @@ const ANTI_UNPACK_FILES: [&str; 4] = [
 ];
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct ExtractStats {
     pub files: u64,
     pub dirs: u64,

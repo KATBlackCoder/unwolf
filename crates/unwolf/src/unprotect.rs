@@ -22,6 +22,7 @@ use crate::wolfrpg::database::Project;
 
 /// What happened to one file.
 #[derive(Debug)]
+#[non_exhaustive]
 pub enum FileStatus {
     Done,
     /// Already unprotected, or protected by another scheme.
@@ -30,6 +31,7 @@ pub enum FileStatus {
 }
 
 #[derive(Debug)]
+#[non_exhaustive]
 pub struct FileReport {
     pub name: String,
     pub status: FileStatus,

@@ -131,11 +131,12 @@ much easier. Please do not attach game files, archives or executables.
 ## Use as a Rust library
 
 ```toml
-unwolf = { version = "0.1", default-features = false }
+unwolf = { version = "0.2", default-features = false }
 ```
 
 `default-features = false` leaves out the command and its dependencies. See
-the example on [docs.rs](https://docs.rs/unwolf).
+the example on [docs.rs](https://docs.rs/unwolf). Changes between versions,
+with migration notes, are in [CHANGELOG.md](CHANGELOG.md).
 
 ## More details
 

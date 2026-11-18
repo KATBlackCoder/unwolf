@@ -35,6 +35,7 @@ const PRESS_MIN_GAIN: f64 = 0.90;
 const LAYER_CHUNK: usize = 1 << 20;
 
 #[derive(Debug, Default, Clone, Copy, PartialEq, Eq)]
+#[non_exhaustive]
 pub struct PackStats {
     pub files: u64,
     pub dirs: u64,
